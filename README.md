@@ -1,6 +1,6 @@
 # Ralph
 
-Ralph is a simple, file-based autonomous coding agent. It operates on a **stateless architecture**, where a main loop (managed by a Bash script) spawns a fresh Python process for each turn. This design ensures robustness and prevents context drift by enforcing strict reliance on persisted state.
+Ralph is a file-based autonomous coding agent. It operates on a **stateless architecture**, where a main loop (managed by a Bash script) spawns a fresh Python process for each turn, and saving progress as a task management approach. This design prevents context rot by enforcing strict reliance on persisted state.
 
 Ralph reads your task list, writes code, executes commands, and updates its progress, all while running securely inside a Docker container.
 
