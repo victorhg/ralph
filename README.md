@@ -1,63 +1,95 @@
-# MyRalph
+# Ralph
 
-MyRalph is an implementation of the "Ralph Loop" agentic strategy. It runs an autonomous developer agent inside a secure Docker container that iteratively works on your project to complete tasks defined in markdown.
+Ralph is a simple, file-based autonomous coding agent. It operates on a **stateless architecture**, where a main loop (managed by a Bash script) spawns a fresh Python process for each turn. This design ensures robustness and prevents context drift by enforcing strict reliance on persisted state.
 
-The system connects to your local LLM (via Ollama) and executes a loop of: reading tasks, implementing code, running checks, and updating progress.
+Ralph reads your task list, writes code, executes commands, and updates its progress, all while running securely inside a Docker container.
 
 ## Features
 
-- **Local Execution:** Runs entirely on your machine.
-- **Sandboxed:** executed inside a Docker container for security.
-- **Model Agnostic:** Connects to any model provided by your local Ollama instance (default: `llama3`).
-- **Task Driven:** Follows instructions from a simple `TASKS.md` or `PRD.md` file.
+- **Stateless & Robust:** Checkpointing happens naturally via the filesystem (`progress.txt`, `TASKS.md`). If the agent crashes, it restarts fresh on the next loop.
+- **Sandboxed:** All code execution happens inside a Docker container.
+- **Multi-Provider:** Support for local models (Ollama) and cloud providers (OpenAI, Anthropic).
+- **File-Centric Memory:** The "brain" is just `TASKS.md` and `PRD.md`. No complex vector databases or hidden states.
 
 ## Prerequisites
 
-1. **Docker**: Ensure Docker Desktop is installed and running.
-2. **Ollama**: Ensure [Ollama](https://ollama.com/) is installed and running locally.
-   - You should have at least one model pulled (e.g., `ollama pull llama3`).
+1.  **Docker**: Required for the sandbox environment.
+2.  **AI Provider**:
+    -   **Local:** [Ollama](https://ollama.com/) running locally (default).
+    -   **Cloud:** API Key for OpenAI, Anthropic, etc.
+
+## Setup
+
+1.  **Configuration**:
+    Ralph looks for a configuration file at `.ralph/agents.env`. Create this file to set your provider and keys.
+
+    ```bash
+    # Example .ralph/agents.env
+    
+    # Choose provider: ollama, openai, anthropic, groq
+    AI_PROVIDER=ollama
+    
+    # Choose model
+    AI_MODEL=llama3
+    
+    # Keys (only needed for cloud providers)
+    OPENAI_API_KEY=sk-...
+    ANTHROPIC_API_KEY=sk-ant-...
+    ```
+
+    *Note: `.ralph/agents.env` is git-ignored by default to protect your secrets.*
+
+2.  **Tasks**:
+    Define your goals in `TASKS.md` in the root of your project.
+
+    ```markdown
+    # Tasks
+    - [ ] Create a hello world script
+    - [ ] Add a readme file
+    ```
 
 ## Usage
 
-### 1. Define your Tasks
+### Start the Agent
 
-Create or edit `TASKS.md` in the root of your project. This is the "to-do" list for the agent.
-
-```markdown
-# Tasks
-- [ ] Create a hello world script
-- [ ] Add a readme file
-```
-
-### 2. Start the Agent
-
-Run the start script located in the `.ralph` directory:
+Run the start script to build the container and launch the agent loop:
 
 ```bash
 ./.ralph/start.sh
 ```
 
-You can optionally specify the model and maximum number of iterations using named parameters:
+### CLI Overrides
+
+You can override configuration defaults directly from the command line:
 
 ```bash
-# Usage: ./start.sh --model [model_name] --loops [number_of_loops]
-./.ralph/start.sh --model llama3 --loops 5
+# Use a specific model
+./.ralph/start.sh --model gpt-4o
+
+# Run for a specific number of loops (default is usually unlimited or high check limit)
+./.ralph/start.sh --loops 10
+
+# Start fresh (clears specific memory files like progress.txt)
+./.ralph/start.sh --scratch
 ```
 
-### 3. Workflow
+## How It Works
 
-- The script will build a Docker image `myralph-agent`.
-- It mounts your current directory into the container.
-- The agent reads instructions, edits files, and communicates with your local Ollama instance.
-- Progress is logged, and completed tasks are marked in your markdown files.
+1.  **Boot**: `start.sh` builds the Docker image and mounts the current directory.
+2.  **Loop**: `.ralph/ralph.sh` runs inside the container.
+3.  **Act**: In every iteration, it launches a Python script that:
+    -   Reads `agents.env`, `TASKS.md`, `PRD.md`, and `progress.txt`.
+    -   Generates a prompt for the configured LLM.
+    -   Executes the LLM's response (editing files, running commands).
+    -   Updates `progress.txt` and check-marks `TASKS.md`.
+4.  **Repeat**: The Python process exits, and the Bash loop starts the next iteration.
 
 ## Project Structure
 
-- **`.ralph/`**: Contains the agent infrastructure (Dockerfile, scripts, system prompts).
-- **`TASKS.md`**: Your roadmap for the agent.
-- **`PRD.md`**: (Optional) Product Requirement Document for higher-level context.
-
-## References
-
-- Concept based on [Ralph by ghuntley](https://ghuntley.com/ralph).
-- Original reference implementation: [snarktank/ralph](https://github.com/snarktank/ralph).
+-   **`.ralph/`**: Contains the agent's brain and infrastructure.
+    -   `start.sh`: Host entry point.
+    -   `ralph.sh`: Internal loop controller.
+    -   `agents.env`: Configuration and secrets.
+    -   `agent.py`: The python logic ran each turn.
+-   **`TASKS.md`**: Your instructions to the agent.
+-   **`progress.txt`**: The agent's short-term memory of what it just did.
