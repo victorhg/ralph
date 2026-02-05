@@ -3,12 +3,14 @@ import sys
 import requests
 import json
 import re
+import subprocess
 
 # Configuration
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://host.docker.internal:11434")
 MODEL = os.environ.get("OLLAMA_MODEL", "llama3")
 MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "4096"))
 TASKS_FILE = os.environ.get("TASKS_FILE", "TASKS.md")
+PROMPT_FILE = "prompt.md"
 
 def read_file(path):
     try:
@@ -26,6 +28,30 @@ def write_file(path, content):
         f.write(content)
     print(f"✅ Written to {path}")
 
+def execute_git_commit(message):
+    try:
+        # Check if .git exists, if not init
+        if not os.path.exists(".git"):
+            subprocess.run(["git", "init"], check=True)
+            # Configure user for the agent inside this repo
+            subprocess.run(["git", "config", "user.name", "MyRalph Agent"], check=False)
+            subprocess.run(["git", "config", "user.email", "agent@myralph.local"], check=False)
+
+        # Add all changes
+        subprocess.run(["git", "add", "."], check=True)
+        
+        # Check if there are changes to commit
+        status = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
+        if not status.stdout.strip():
+            print("No changes to commit.")
+            return
+
+        # Commit
+        subprocess.run(["git", "commit", "-m", message], check=True)
+        print(f"✅ Git commit created: {message}")
+    except subprocess.CalledProcessError as e:
+        print(f"⚠️ Git commit failed: {e}")
+
 def parse_and_execute_tools(response_text):
     # Look for file blocks: <<FILE path="path/to/file">>content<</FILE>>
     file_pattern = r'<<FILE path="([^"]+)">>(.*?)<</FILE>>'
@@ -40,6 +66,13 @@ def parse_and_execute_tools(response_text):
     
     if executed:
         print("Tools executed.")
+        
+        # Look for commit message
+        commit_msg_match = re.search(r'<<COMMIT_MSG>>(.*?)<</COMMIT_MSG>>', response_text, re.DOTALL)
+        commit_msg = commit_msg_match.group(1).strip() if commit_msg_match else "Update by MyRalph Agent"
+        
+        execute_git_commit(commit_msg)
+        
     else:
         print("No tool calls found in output.")
 
@@ -54,25 +87,9 @@ def main():
     tasks_content = read_file(TASKS_FILE)
     
     # Construct System Prompt
-    system_prompt = """You are an autonomous developer agent.
-You are running in a loop.
-Your goal is to complete the tasks described in the attached tasks file.
-You can read files and write files.
+    # Load prompt.md to use as system prompt
+    system_prompt = read_file(PROMPT_FILE)
 
-To WRITE a file, use the designated format:
-<<FILE path="path/to/filename.ext">>
-Line 1 of content
-Line 2 of content
-<</FILE>>
-
-This will overwrite the file at 'path/to/filename.ext' with the content provided.
-You can write multiple files in one response.
-
-Check your progress. If you believe all tasks are complete, output:
-<promise>COMPLETE</promise>
-
-If you are not done, analyze the current state, decide on the next step, and output the necessary file changes or code.
-"""
 
     prompt = f"TASKS_FILE:\n{tasks_content}\n\n"
     

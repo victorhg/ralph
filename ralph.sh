@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Configuration
-MAX_ITERATIONS=${MAX_ITERATIONS:-10}
+MAX_ITERATIONS=${MAX_ITERATIONS:-2}
 TOOL_SCRIPT="agent.py"
 
 echo "Starting Ralph Loop"
