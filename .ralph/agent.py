@@ -10,7 +10,7 @@ OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://host.docker.internal:11434")
 MODEL = os.environ.get("OLLAMA_MODEL", "llama3")
 MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "4096"))
 TASKS_FILE = os.environ.get("TASKS_FILE", "TASKS.md")
-PROMPT_FILE = "prompt.md"
+PROMPT_FILE = os.environ.get("PROMPT_FILE", "/opt/ralph/prompt.md")
 
 def read_file(path):
     try:

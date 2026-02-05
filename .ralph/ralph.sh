@@ -2,7 +2,7 @@
 
 # Configuration
 MAX_ITERATIONS=${MAX_ITERATIONS:-2}
-TOOL_SCRIPT="agent.py"
+TOOL_SCRIPT="/opt/ralph/agent.py"
 
 echo "Starting Ralph Loop"
 echo "Model: ${OLLAMA_MODEL:-default}"
