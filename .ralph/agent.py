@@ -5,12 +5,102 @@ import json
 import re
 import subprocess
 
-# Configuration
+AI_PROVIDER = os.environ.get("AI_PROVIDER", "ollama").lower()
+MODEL = os.environ.get("AI_MODEL", os.environ.get("OLLAMA_MODEL", "llama3"))
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://host.docker.internal:11434")
-MODEL = os.environ.get("OLLAMA_MODEL", "codellama:7b")
+AI_API_KEY = os.environ.get("AI_API_KEY", "")
+
 MAX_ITERATIONS = int(os.environ.get("MAX_ITERATIONS", "10"))
 TASKS_FILE = os.environ.get("TASKS_FILE", "TASKS.md")
 PROMPT_FILE = os.environ.get("PROMPT_FILE", "/opt/ralph/prompt.md")
+
+class LLMProvider:
+    def chat(self, system_prompt, messages):
+        raise NotImplementedError
+
+class OllamaProvider(LLMProvider):
+    def chat(self, system_prompt, messages):
+        url = f"{OLLAMA_HOST}/api/generate"
+        
+        full_prompt = f"System: {system_prompt}\n"
+        for msg in messages:
+            role = msg["role"].capitalize()
+            full_prompt += f"{role}: {msg['content']}\n"
+        full_prompt += "Assistant: "
+
+        payload = {
+            "model": MODEL,
+            "prompt": full_prompt,
+            "stream": True
+        }
+        response = requests.post(url, json=payload, stream=True)
+        response.raise_for_status()
+        
+        for line in response.iter_lines():
+            if line:
+                json_line = json.loads(line.decode('utf-8'))
+                chunk = json_line.get("response", "")
+                yield chunk
+
+class OpenAIProvider(LLMProvider):
+    def chat(self, system_prompt, messages):
+        url = "https://api.openai.com/v1/chat/completions"
+        headers = {"Authorization": f"Bearer {AI_API_KEY}"}
+        payload = {
+            "model": MODEL,
+            "messages": [{"role": "system", "content": system_prompt}] + messages,
+            "stream": True
+        }
+        
+        response = requests.post(url, json=payload, headers=headers, stream=True)
+        response.raise_for_status()
+        
+        for line in response.iter_lines():
+            if line:
+                line_text = line.decode('utf-8')
+                if line_text.startswith("data: "):
+                    data_str = line_text[6:].strip()
+                    if data_str == "[DONE]":
+                        break
+                    json_data = json.loads(data_str)
+                    chunk = json_data.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                    if chunk:
+                        yield chunk
+
+class ClaudeProvider(LLMProvider):
+    def chat(self, system_prompt, messages):
+        url = "https://api.anthropic.com/v1/messages"
+        headers = {
+            "x-api-key": AI_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+        }
+        payload = {
+            "model": MODEL,
+            "system": system_prompt,
+            "messages": messages,
+            "max_tokens": 4096,
+            "stream": True
+        }
+        
+        response = requests.post(url, json=payload, headers=headers, stream=True)
+        response.raise_for_status()
+        
+        for line in response.iter_lines():
+            if line:
+                line_text = line.decode('utf-8')
+                if line_text.startswith("data: "):
+                    data_str = line_text[6:].strip()
+                    json_data = json.loads(data_str)
+                    if json_data.get("type") == "content_block_delta":
+                        yield json_data.get("delta", {}).get("text", "")
+
+def get_provider():
+    if AI_PROVIDER == "openai":
+        return OpenAIProvider()
+    elif AI_PROVIDER == "claude":
+        return ClaudeProvider()
+    return OllamaProvider()
 
 def read_file(path):
     try:
@@ -129,7 +219,6 @@ def get_project_files(root_dir="."):
 
 
 def parse_and_execute_tools(response_text):
-    print(response_text)
     tool_outputs = []
     
     # Tool: READ
@@ -170,33 +259,30 @@ def parse_and_execute_tools(response_text):
 
 def main():
     print(f"🤖 Ralph Agent Initializing...")
-    print(f"   Host: {OLLAMA_HOST}")
+    print(f"   Provider: {AI_PROVIDER}")
     print(f"   Model: {MODEL}")
 
     # 1. Load System Prompt
     system_prompt = read_file(PROMPT_FILE)
     if "Error" in system_prompt:
-        # Fallback if file not found
         system_prompt = "You are a helpful coding agent."
 
     # 2. Load Tasks
     tasks_content = read_file(TASKS_FILE)
     
-    # 3. Load Context (Progress & AGENTS.md heuristics)
+    # 3. Load Context
     context_files = ""
     if os.path.exists("progress.txt"):
         context_files += f"\n=== progress.txt ===\n{read_file('progress.txt')}\n"
-    
-    # Simple heuristic: Read AGENTS.md in root if exists
     if os.path.exists("AGENTS.md"):
         context_files += f"\n=== AGENTS.md ===\n{read_file('AGENTS.md')}\n"
 
-    # 4. List Files (Structure)
+    # 4. List Files
     files_list = get_project_files(".")
     file_structure = "\n".join(files_list)
 
-    # 5. Build Initial Prompt
-    initial_prompt = f"""
+    # 5. Build prompt from scratch (Stateless turn)
+    prompt = f"""
 PROJECT CONTEXT:
 Here is the file structure:
 {file_structure}
@@ -204,79 +290,40 @@ Here is the file structure:
 TASKS:
 {tasks_content}
 
-CURRENT PROGRESS & LEARNINGS:
+CURRENT PROGRESS, FINDINGS & LOGS:
 {context_files}
 
-Start by analyzing the request or reading necessary files.
+---
+Based on the above, proceed with the next step. If you just performed an action, verify it. 
+If the task is complete, end your response with <promise>COMPLETE</promise>.
 """
 
-    context = [] # To store conversation history (tokens)
-    current_prompt = initial_prompt
+    messages = [{"role": "user", "content": prompt}]
+    provider = get_provider()
     
-    iteration = 0
-    while iteration < MAX_ITERATIONS:
-        iteration += 1
-        print(f"\n🔄 Iteration {iteration}/{MAX_ITERATIONS}")
+    try:
+        assistant_content = ""
+        print("\n--- Model Output ---\n")
+        
+        for chunk in provider.chat(system_prompt, messages):
+            assistant_content += chunk
+            print(chunk, end='', flush=True)
+        
+        print("\n\n--------------------\n")
+        
+        # Execute Tools for this turn
+        parse_and_execute_tools(assistant_content)
+        
+        # Completion check is handled by the bash script via stdout
+        if "<promise>COMPLETE</promise>" in assistant_content:
+            print("✅ Turn complete: Task Success.")
 
-        payload = {
-            "model": MODEL,
-            "prompt": current_prompt,
-            "system": system_prompt, # pass system prompt separately
-            "context": context,      # pass history
-            "stream": True,
-            "options": {
-                "num_ctx": 8192 
-            }
-        }
-
-        try:
-            print(f"⏳ Sending request to Ollama... {OLLAMA_HOST}/api/generate")           # Switch to /api/generate
-            response = requests.post(f"{OLLAMA_HOST}/api/generate", json=payload, stream=True)
-            response.raise_for_status()
-            
-            assistant_content = ""
-            print("\n--- Model Output ---\n")
-            
-            for line in response.iter_lines():
-                if line:
-                    decoded_line = line.decode('utf-8')
-                    try:
-                        json_line = json.loads(decoded_line)
-                        # /api/generate returns 'response', not 'message.content'
-                        chunk = json_line.get("response", "")
-                        assistant_content += chunk
-                        print(chunk, end='', flush=True)
-                        
-                        if json_line.get("done"):
-                            # Update context with the new history returned by Ollama
-                            context = json_line.get("context", [])
-                            break
-                    except json.JSONDecodeError:
-                        continue
-            
-            print("\n\n--------------------\n")
-            
-            # Check for completion
-            if "<promise>COMPLETE</promise>" in assistant_content:
-                print("✅ Task marked as complete.")
-                break
-
-            # Execute Tools
-            tool_results = parse_and_execute_tools(assistant_content)
-            
-            if tool_results:
-                observation = "\n".join(tool_results)
-                current_prompt = f"TOOL OUTPUTS:\n{observation}\n\nContinue."
-            else:
-                # If no tools were called, force a continuance
-                current_prompt = "Proceed with the next step."
-
-        except KeyboardInterrupt:
-            print("\n🛑 Stopped by user.")
-            break
-        except Exception as e:
-            print(f"❌ Error: {e}")
-            break
+    except KeyboardInterrupt:
+        print("\n🛑 Stopped by user.")
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

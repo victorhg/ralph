@@ -18,3 +18,10 @@ Use markdown as tasks configuration
 ## Reference
 
 Ralph code by Snarktank: https://github.com/snarktank/ralph/blob/main/ralph.sh
+
+
+curl http://localhost:11434/api/generate -d '{
+  "model": "glm-4.7-flash",
+  "prompt": "Why is the sky blue?",
+  "stream": false
+}'

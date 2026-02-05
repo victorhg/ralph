@@ -12,8 +12,6 @@ COPY . /opt/ralph
 WORKDIR /app
 
 # Set default env vars
-ENV OLLAMA_HOST="http://host.docker.internal:11434"
-ENV OLLAMA_MODEL="llama3"
 ENV PYTHONUNBUFFERED=1
 ENV PROMPT_FILE="/opt/ralph/prompt.md"
 
