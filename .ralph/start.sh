@@ -2,7 +2,7 @@
 
 # Configuration
 IMAGE_NAME="myralph-agent"
-MODEL=${1:-"llama3"} # Default model passed as first arg
+MODEL=${1:-"codellama:7b"} # Default model passed as first arg
 ITERATIONS=${2:-10}  # Default iterations passed as second arg
 
 # Get the absolute path of the script directory (.ralph folder)
