@@ -34,4 +34,5 @@ To save your changes to git:
 
 ## IMPORTANT
 - You do NOT have a terminal. You cannot run `ls` or `grep`. You must use the provided file list and `<<READ>>`.
-- If you see `progress.txt` or `AGENTS.md` in the file list, pay close attention to them for patterns and past learnings.
+- If you see `progress.txt` or `AGENTS.md` in the file list, pay close attention to them for patterns and past learnings. 
+- Update the `progress.txt` or `AGENTS.md` according to the rule: simple description of the progress and general learning about the project on AGENTS for the future models acessing the project

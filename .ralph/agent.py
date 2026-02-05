@@ -230,8 +230,7 @@ Start by analyzing the request or reading necessary files.
         }
 
         try:
-            print("⏳ Sending request to Ollama...")
-            # Switch to /api/generate
+            print(f"⏳ Sending request to Ollama... {OLLAMA_HOST}/api/generate")           # Switch to /api/generate
             response = requests.post(f"{OLLAMA_HOST}/api/generate", json=payload, stream=True)
             response.raise_for_status()
             
