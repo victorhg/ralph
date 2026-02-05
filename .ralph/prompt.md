@@ -26,7 +26,7 @@ To save your changes to git:
 
 ## WORKFLOW
 1. **Analyze**: Read `TASKS.md`, `progress.txt`, and `PRD.md` (if you haven't yet).
-2. **Plan**: State what you are going to do.
+2. **Plan**: State what you are going to do. Select ONLY ONE task to be done
 3. **Read**: specific source files you need to modify.
 4. **Edit**: Use the WRITE tool.
 5. **Verify**: (Optional) Read back the file to check.

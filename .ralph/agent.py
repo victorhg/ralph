@@ -59,6 +59,75 @@ def execute_git_commit(message):
     except subprocess.CalledProcessError as e:
         return f"⚠️ Git commit failed: {e}"
 
+import fnmatch
+
+
+def get_project_files(root_dir="."):
+    """
+    Returns a list of files in the project, respecting .gitignore if available.
+    Uses 'git ls-files' if it's a git repo, otherwise falls back to a basic Python implementation.
+    """
+    files_list = []
+    
+    # Method 1: Try using git (most robust for .gitignore)
+    try:
+        # Check if git is available and inside a work tree
+        subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"], 
+            cwd=root_dir, 
+            check=True, 
+            stdout=subprocess.DEVNULL, 
+            stderr=subprocess.DEVNULL
+        )
+        
+        # Run git ls-files, respecting .gitignore (--exclude-standard) 
+        # listing cached (tracked) and other (untracked) files
+        result = subprocess.run(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+            cwd=root_dir,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        
+        paths = result.stdout.strip().split('\n')
+        # Filter out empty strings and .ralph directory itself if desired, 
+        # but generally seeing the config is okay. 
+        files_list = [p for p in paths if p]
+        
+        if files_list:
+            return files_list
+            
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+
+    # Method 2: Fallback Python walker
+    ignore_patterns = [".git", "__pycache__", "*.pyc", "*.pyo", ".DS_Store", ".ralph"]
+    
+    gitignore_path = os.path.join(root_dir, ".gitignore")
+    if os.path.exists(gitignore_path):
+        try:
+            with open(gitignore_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        ignore_patterns.append(line)
+        except Exception:
+            pass
+    
+    for root, dirs, files in os.walk(root_dir):
+        # Prune ignored directories
+        dirs[:] = [d for d in dirs if not any(fnmatch.fnmatch(d, p.rstrip('/')) for p in ignore_patterns)]
+        
+        for file in files:
+            if not any(fnmatch.fnmatch(file, p) for p in ignore_patterns):
+                rel_path = os.path.relpath(os.path.join(root, file), root_dir)
+                files_list.append(rel_path)
+                
+    return files_list
+
+
+
 def parse_and_execute_tools(response_text):
     print(response_text)
     tool_outputs = []
@@ -123,18 +192,11 @@ def main():
         context_files += f"\n=== AGENTS.md ===\n{read_file('AGENTS.md')}\n"
 
     # 4. List Files (Structure)
-    files_list = []
-    for root, dirs, files in os.walk("."):
-        if ".git" in dirs: 
-            dirs.remove(".git")
-        for file in files:
-            files_list.append(os.path.join(root, file))
+    files_list = get_project_files(".")
     file_structure = "\n".join(files_list)
 
-    # 5. Build Initial Message History
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"""
+    # 5. Build Initial Prompt
+    initial_prompt = f"""
 PROJECT CONTEXT:
 Here is the file structure:
 {file_structure}
@@ -146,9 +208,11 @@ CURRENT PROGRESS & LEARNINGS:
 {context_files}
 
 Start by analyzing the request or reading necessary files.
-"""}
-    ]
+"""
 
+    context = [] # To store conversation history (tokens)
+    current_prompt = initial_prompt
+    
     iteration = 0
     while iteration < MAX_ITERATIONS:
         iteration += 1
@@ -156,26 +220,43 @@ Start by analyzing the request or reading necessary files.
 
         payload = {
             "model": MODEL,
-            "messages": messages,
-            "stream": False,
+            "prompt": current_prompt,
+            "system": system_prompt, # pass system prompt separately
+            "context": context,      # pass history
+            "stream": True,
             "options": {
-                "num_ctx": 8192 # Bump context if possible
+                "num_ctx": 8192 
             }
         }
 
         try:
-            response = requests.post(f"{OLLAMA_HOST}/api/generate", json=payload)
+            print("⏳ Sending request to Ollama...")
+            # Switch to /api/generate
+            response = requests.post(f"{OLLAMA_HOST}/api/generate", json=payload, stream=True)
             response.raise_for_status()
-            result = response.json()
             
-            assistant_content = result.get("message", {}).get("content", "")
+            assistant_content = ""
+            print("\n--- Model Output ---\n")
             
-            print("\n--- Model Thought/Action ---\n")
-            print(assistant_content[:200] + "..." if len(assistant_content) > 200 else assistant_content)
+            for line in response.iter_lines():
+                if line:
+                    decoded_line = line.decode('utf-8')
+                    try:
+                        json_line = json.loads(decoded_line)
+                        # /api/generate returns 'response', not 'message.content'
+                        chunk = json_line.get("response", "")
+                        assistant_content += chunk
+                        print(chunk, end='', flush=True)
+                        
+                        if json_line.get("done"):
+                            # Update context with the new history returned by Ollama
+                            context = json_line.get("context", [])
+                            break
+                    except json.JSONDecodeError:
+                        continue
             
-            # Add assistant message to history
-            messages.append({"role": "assistant", "content": assistant_content})
-
+            print("\n\n--------------------\n")
+            
             # Check for completion
             if "<promise>COMPLETE</promise>" in assistant_content:
                 print("✅ Task marked as complete.")
@@ -186,10 +267,10 @@ Start by analyzing the request or reading necessary files.
             
             if tool_results:
                 observation = "\n".join(tool_results)
-                messages.append({"role": "user", "content": f"TOOL OUTPUTS:\n{observation}"})
+                current_prompt = f"TOOL OUTPUTS:\n{observation}\n\nContinue."
             else:
-                # If no tools were called, prompt the agent to continue or ask if it's done.
-                messages.append({"role": "user", "content": "Proceed."})
+                # If no tools were called, force a continuance
+                current_prompt = "Proceed with the next step."
 
         except KeyboardInterrupt:
             print("\n🛑 Stopped by user.")
