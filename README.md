@@ -40,10 +40,10 @@ Ralph reads your task list, writes code, executes commands, and updates its prog
     *Note: `.ralph/agents.env` is git-ignored by default to protect your secrets.*
 
 2.  **Tasks**:
-    Define your goals in `TASKS.md` in the root of your project.
+    Define your goals in `TASKS.md` in the root of your project. Look at the example files to have a better understanding
 
     ```markdown
-    # Tasks
+    # TASK NAME [NOT DONE]
     - [ ] Create a hello world script
     - [ ] Add a readme file
     ```
