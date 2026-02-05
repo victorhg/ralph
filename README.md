@@ -20,6 +20,11 @@ Ralph reads your task list, writes code, executes commands, and updates its prog
 
 ## Setup
 
+0.  **Installation**
+    - Copy the contents of `.ralph/` to you project folder
+    - add `.ralph/` to you `.gitignore`
+    - Create 3 files on the project folder `PRD.md`, `TASKS.md`, `AGENTS.md`
+
 1.  **Configuration**:
     Ralph looks for a configuration file at `.ralph/agents.env`. Create this file to set your provider and keys.
 
