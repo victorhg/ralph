@@ -37,11 +37,11 @@ Run the start script located in the `.ralph` directory:
 ./.ralph/start.sh
 ```
 
-You can optionally specify the model and maximum number of iterations:
+You can optionally specify the model and maximum number of iterations using named parameters:
 
 ```bash
-# Usage: ./start.sh [model_name] [max_iterations]
-./.ralph/start.sh llama3 5
+# Usage: ./start.sh --model [model_name] --loops [number_of_loops]
+./.ralph/start.sh --model llama3 --loops 5
 ```
 
 ### 3. Workflow

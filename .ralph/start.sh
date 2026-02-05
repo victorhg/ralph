@@ -1,9 +1,19 @@
 #!/bin/bash
 
-# Configuration
+# Default Configuration
 IMAGE_NAME="myralph-agent"
-MODEL=${1:-"codellama:7b"} # Default model passed as first arg
-ITERATIONS=${2:-10}  # Default iterations passed as second arg
+MODEL="codellama:7b"
+ITERATIONS=10
+
+# Parse arguments
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --model) MODEL="$2"; shift ;;
+        --loops) ITERATIONS="$2"; shift ;;
+        *) echo "Unknown parameter passed: $1"; exit 1 ;;
+    esac
+    shift
+done
 
 # Get the absolute path of the script directory (.ralph folder)
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
